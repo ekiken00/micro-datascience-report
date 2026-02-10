@@ -4,9 +4,9 @@ library(sf)
 library(rnaturalearth)
 library(viridis)
 
-
 df <- read.csv("WVS_Cross.csv")
 
+# data clean
 df_country1 <- df %>%
   select(
     B_COUNTRY,
@@ -15,10 +15,8 @@ df_country1 <- df %>%
     internetusers,
     mobphone
   ) %>%
- 
   mutate(across(c(co2percap, internetusers, mobphone),
                 ~ifelse(. == -9999, NA, .))) %>%
-  
   group_by(B_COUNTRY, B_COUNTRY_ALPHA) %>%
   summarise(
     co2_pre = mean(co2percap, na.rm = TRUE),
@@ -26,30 +24,71 @@ df_country1 <- df %>%
     mob_phone = mean(mobphone, na.rm = TRUE),
     .groups = 'drop'
   )
+
 summary(df_country1)
 
 df_country1_clean <- df_country1
+# regress
+modelb <- lm(co2_pre ~ int_user, data = df_country1_clean)
+summary(modelb)
 
+modelc <- lm(co2_pre ~ mob_phone, data = df_country1_clean)
+summary(modelc)
 
-# 地図の設定
+# sanpuzu
+ggplot(df_country1_clean, aes(x = int_user, y = co2_pre)) +
+  geom_point(color = "steelblue", alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  labs(title = "Relationship: Internet Usage vs CO2") +
+  theme_minimal()
 
+ggplot(df_country1_clean, aes(x = mob_phone, y = co2_pre)) +
+  geom_point(color = "darkgreen", alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  labs(title = "Relationship: Mobile Phones vs CO2") +
+  theme_minimal()
+
+# multiregression
+modelmulti1 <- lm(co2_pre ~ int_user + mob_phone, data = df_country1_clean)
+summary(modelmulti1)
+
+par(mfrow = c(2,2))
+plot(modelmulti1)
+
+# 残差地図
 world <- ne_countries(scale = "medium", returnclass = "sf")
 
+
+df_analysis <- df_country1_clean %>%
+  drop_na(co2_pre, int_user, mob_phone)
+
+df_analysis$resid <- resid(lm(co2_pre ~ int_user + mob_phone, data = df_analysis))
+
+world_resid <- world %>%
+  left_join(df_analysis, by = c("iso_a3" = "B_COUNTRY_ALPHA"))
+
+# 色の設定
+ggplot(data = world_resid) +
+  geom_sf(aes(fill = resid), color = "white", size = 0.1) +
+  scale_fill_gradient2(low = "#1a9641", mid = "white", high = "#d7191c", midpoint = 0,
+                       name = "Residuals\n(Actual - Predicted)",
+                       na.value = "grey90") +
+  labs(title = "Environmental Efficiency Map",
+       subtitle = "Red = Emits MORE CO2 than expected based on Tech Level\nGreen = Emits LESS than expected",
+       caption = "Model: CO2 ~ Internet + Mobile") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(face = "bold"))
+
+# 原始 CO2 の地図
 world_data <- world %>%
   left_join(df_country1_clean, by = c("iso_a3" = "B_COUNTRY_ALPHA"))
 
 ggplot(data = world_data) +
-
   geom_sf(aes(fill = co2_pre), color = "white", size = 0.1) +
-  
-  # color shifting
-  # na.value = "grey90"
   scale_fill_viridis_c(option = "plasma", 
                        name = "CO2 Emissions\n(metric tons)", 
                        na.value = "grey90") +
-  
-  
-  # title
   labs(title = "Global CO2 Emissions per Capita",
        subtitle = "Data Source: WVS & World Bank",
        caption = "Grey areas indicate missing data") +
@@ -58,36 +97,3 @@ ggplot(data = world_data) +
     legend.position = "bottom", 
     plot.title = element_text(size = 16, face = "bold")
   )
-
-# regress
-
-# regress (co2_pre ~ int_user)
-modelb <- lm(co2_pre ~ int_user, data = df_country1_clean)
-summary(modelb)
-# ggplot(modelb) 
-
-# regress (co2_pre ~ mob_phone)
-modelc <- lm(co2_pre ~ mob_phone, data = df_country1_clean)
-summary(modelc)
-
-# Scatter Graph (Internet Users)
-ggplot(df_country1_clean, aes(x = int_user, y = co2_pre)) +
-  geom_point(color = "steelblue", alpha = 0.7) +
-  geom_smooth(method = "lm", se = FALSE, color = "black") +
-  labs(title = "Relationship: Internet Usage vs CO2") +
-  theme_minimal()
-
-# Scatter Graph (Mobile Phones)
-ggplot(df_country1_clean, aes(x = mob_phone, y = co2_pre)) +
-  geom_point(color = "darkgreen", alpha = 0.7) +
-  geom_smooth(method = "lm", se = FALSE, color = "black") +
-  labs(title = "Relationship: Mobile Phones vs CO2") +
-  theme_minimal()
-
-# Multiregression
-modelmulti1 <- lm(co2_pre ~ int_user + mob_phone, data = df_country1_clean)
-summary(modelmulti1)
-
-# Residual Plot
-par(mfrow = c(2,2))
-plot(modelmulti1)
