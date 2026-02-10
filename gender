@@ -1,0 +1,101 @@
+#gender
+library(tidyverse)
+library(ggrepel) # 国のラベル
+
+df <- read.csv("WVS_Cross.csv")
+
+#  Data Cleaning
+
+df_clean <- df %>%
+  mutate(across(where(is.numeric), ~na_if(., -9999)))
+
+df_country <- df_clean %>%
+  group_by(B_COUNTRY) %>%
+  summarise(
+    pow_gen = mean(v2pepwrgen, na.rm = TRUE),    # Y: Gender Power
+    cla_equal = mean(v2clacjust, na.rm = TRUE),  # X1: Class Equality
+    edu_equal = mean(v2peedueq, na.rm = TRUE),   # X2: Education Equality
+    cil_partic = mean(v2x_cspart, na.rm = TRUE)  # X3: Civil Society
+  ) %>%
+  drop_na() # NAを含む行を削除
+
+# ---------------------------------------------------------
+# regress (pow_gen, cla_equal)
+# ---------------------------------------------------------
+model1 <- lm(pow_gen ~ cla_equal, data = df_country)
+summary(model1)
+
+# sanpuzu graph (Class Equality)
+ggplot(df_country, aes(x = cla_equal, y = pow_gen)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Regression: Power ~ Class Equality")
+
+# ---------------------------------------------------------
+# regress (pow_gen, edu_equal)
+# ---------------------------------------------------------
+model2 <- lm(pow_gen ~ edu_equal, data = df_country)
+summary(model2)
+
+# sanpuzu graph (Education Equality)
+ggplot(df_country, aes(x = edu_equal, y = pow_gen)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Regression: Power ~ Education Equality")
+
+# ---------------------------------------------------------
+# regress (pow_gen, cil_partic)
+# ---------------------------------------------------------
+model3 <- lm(pow_gen ~ cil_partic, data = df_country)
+summary(model3)
+
+# sanpuzu graph (Civil Society)
+ggplot(df_country, aes(x = cil_partic, y = pow_gen)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Regression: Power ~ Civil Participation")
+
+# Multiple Regression & Residual Plot 
+
+# すべての変数をまとめたモデルを作ります。
+
+model_all <- lm(pow_gen ~ cla_equal + edu_equal + cil_partic, data = df_country)
+summary(model_all)
+
+
+df_country$fitted <- fitted(model_all)
+df_country$resid <- resid(model_all)
+
+# Final Visual Upgrade: Residual Plot with Labels
+
+ggplot(df_country, aes(x = fitted, y = resid)) +
+  
+  # 1. Let color reflect resid
+  geom_point(aes(color = resid), size = 3, alpha = 0.8) +
+  
+  # 2. zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  
+  # 3. Smart Labels
+  # u > 0.5 countries marks
+  geom_text_repel(
+    data = df_country %>% filter(abs(resid) > 0.5), 
+    aes(label = B_COUNTRY),
+    size = 3,
+    box.padding = 0.5,
+    max.overlaps = 20
+  ) +
+  
+  # 4. color shifting
+  scale_color_gradient2(low = "#D7191C", mid = "gray90", high = "#2C7BB6", midpoint = 0) +
+  
+  # 5. title and subsitle
+  labs(
+    title = "Residual Plot: Which Countries are Outliers?",
+    subtitle = "Labeled countries significantly overperform (Blue) or underperform (Red)",
+    x = "Predicted Gender Power (Fitted Values)",
+    y = "Residuals (Difference from Prediction)",
+    color = "Deviation"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
